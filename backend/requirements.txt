@@ -1,0 +1,10 @@
+# VideoDub Backend Dependencies
+
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+gTTS==2.5.3
+deep-translator
+youtube-transcript-api
+python-dotenv
+elevenlabs
+edge-tts

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 280px;
+      padding: 16px;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      margin: 0;
+    }
+    h2 {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      text-align: center;
+      color: #e94560;
+    }
+    .status {
+      text-align: center;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: #aaa;
+      min-height: 18px;
+    }
+    .status.active {
+      color: #0f0;
+    }
+    .status.error {
+      color: #ff6b6b;
+    }
+    .status.loading {
+      color: #ffd93d;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button.start {
+      background: #e94560;
+      color: #fff;
+    }
+    button.start:hover {
+      background: #c73450;
+    }
+    button.stop {
+      background: #333;
+      color: #e94560;
+      border: 1px solid #e94560;
+    }
+    button.stop:hover {
+      background: #444;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 217, 61, 0.3);
+      border-top-color: #ffd93d;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .info {
+      text-align: center;
+      font-size: 11px;
+      color: #666;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>🎙 VideoDub</h2>
+  <p class="status" id="status">Status: OFF</p>
+  <button id="toggleBtn" class="start">▶ Start Translation</button>
+  <p class="info" id="info">Translates YouTube English subtitles to Vietnamese voice</p>
+  <script src="popup.js"></script>
+</body>
+</html>

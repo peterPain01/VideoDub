@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "VideoDub - YouTube EN→VI Translator",
+  "version": "1.0.0",
+  "description": "Translates YouTube English speech into Vietnamese voice in near real-time",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "VideoDub"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
