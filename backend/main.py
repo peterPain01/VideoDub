@@ -8,6 +8,9 @@ segments with audio.
 
 import asyncio
 import base64
+import logging
+import os
+import time
 import traceback
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,9 +18,12 @@ from pydantic import BaseModel
 import uvicorn
 
 from subtitle import fetch_subtitles
-from translate import translate_text
-from text_processor import merge_subtitle_segments
+from translate import translate_batch
+from text_processor import log_transcript, merge_segments
 from tts import text_to_speech, list_voices, get_provider_name
+
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 app = FastAPI(title="VideoDub Backend")
 
@@ -70,6 +76,7 @@ async def get_translated_subtitles(request: SubtitleRequest):
     """
     video_id = request.videoId
     voice_id = request.voiceId
+    t_start = time.perf_counter()
     print(f"[VideoDub] Subtitle request for video: {video_id}")
 
     # Step 1: Fetch English subtitles
@@ -82,63 +89,66 @@ async def get_translated_subtitles(request: SubtitleRequest):
                    "This extension only works with videos that have English captions."
         )
 
-    print(f"[VideoDub] Fetched {len(subtitles)} raw subtitle segments")
+    t1 = time.perf_counter()
+    print(f"[Step 1] Fetch subtitles → {len(subtitles)} segments  ({t1 - t_start:.2f}s)")
 
-    # Step 2: Translate each segment
-    translated_segments = []
-    for seg in subtitles:
-        original_text = seg["text"]
-        if not original_text or not original_text.strip():
+    # Step 2: Translate all EN segments → VI in a single batch request
+    raw_segments = [s for s in subtitles if s.get("text", "").strip()]
+    en_texts = [s["text"] for s in raw_segments]
+    vi_texts = await translate_batch(en_texts)
+
+    translated_segments = [
+        {"text": vi, "en_text": en, "start": seg["start"], "duration": seg["duration"]}
+        for seg, en, vi in zip(raw_segments, en_texts, vi_texts)
+        if vi and vi.strip()
+    ]
+
+    t2 = time.perf_counter()
+    print(f"[Step 2] Translate → {len(translated_segments)}/{len(raw_segments)} segments  ({t2 - t1:.2f}s)")
+
+    # Step 3: Merge short fragments into natural sentences
+    merged_segments = merge_segments(translated_segments)
+
+    for i, s in enumerate(merged_segments):
+        end = s["start"] + s["duration"]
+        logging.info(
+            f"[Sentence {i+1:03d}] {s['start']:.2f}s – {end:.2f}s ({s['duration']:.2f}s)\n"
+            f"  EN: {s['en_text']}\n"
+            f"  VI: {s['text']}"
+        )
+
+    log_transcript(video_id, raw_segments, merged_segments)
+
+    t3 = time.perf_counter()
+    print(f"[Step 3] Merge → {len(translated_segments)} segments → {len(merged_segments)} sentences  ({t3 - t2:.2f}s)")
+
+    # Step 4: Generate TTS for all segments in parallel
+    async def _tts_one(segment):
+        try:
+            mp3_bytes = await asyncio.to_thread(text_to_speech, segment["text"], voice_id)
+            return segment, mp3_bytes
+        except Exception as e:
+            print(f"[VideoDub] TTS error for segment '{segment['text'][:40]}': {e}")
+            return segment, None
+
+    tts_results = await asyncio.gather(*[_tts_one(s) for s in merged_segments])
+
+    results = []
+    for segment, mp3_bytes in tts_results:
+        if not mp3_bytes:
             continue
-
-        translated_text = translate_text(original_text)
-        if not translated_text or not translated_text.strip():
-            continue
-
-        translated_segments.append({
-            "text": translated_text,
-            "start": seg["start"],
-            "duration": seg["duration"],
-            "originalText": original_text,
+        audio_b64 = base64.b64encode(mp3_bytes).decode("utf-8")
+        results.append({
+            "start": segment["start"],
+            "duration": segment["duration"],
+            "originalText": segment["en_text"],
+            "translatedText": segment["text"],
+            "audioBase64": audio_b64,
         })
 
-    print(f"[VideoDub] Translated {len(translated_segments)} segments")
-
-    # Step 3: Merge short segments into natural sentences
-    merged = merge_subtitle_segments(translated_segments)
-
-    # Step 4: Generate TTS for each merged segment
-    results = []
-    for i, segment in enumerate(merged):
-        try:
-            text = segment["text"]
-
-            # Generate TTS audio (caching handled inside engine)
-            mp3_bytes = text_to_speech(text, voice_id)
-
-            if not mp3_bytes:
-                continue
-
-            audio_b64 = base64.b64encode(mp3_bytes).decode("utf-8")
-
-            results.append({
-                "start": segment["start"],
-                "duration": segment["duration"],
-                "originalText": " | ".join(segment.get("original_texts", [text])),
-                "translatedText": text,
-                "audioBase64": audio_b64,
-            })
-
-            if (i + 1) % 20 == 0:
-                print(f"[VideoDub] Generated TTS for {i + 1}/{len(merged)} segments...")
-
-        except Exception as e:
-            print(f"[VideoDub] Error processing segment {i}: {e}")
-            traceback.print_exc()
-            continue
-
-    print(f"[VideoDub] Done! Returning {len(results)} translated segments "
-          f"(provider: {get_provider_name()})")
+    t4 = time.perf_counter()
+    print(f"[Step 4] TTS → {len(results)}/{len(merged_segments)} segments  ({t4 - t3:.2f}s)")
+    print(f"[Total]  {t4 - t_start:.2f}s  (provider: {get_provider_name()})")
 
     return {
         "videoId": video_id,

@@ -1,134 +1,118 @@
 """
-text_processor.py - Merge short subtitle segments into natural sentences.
-
-YouTube subtitles are often broken into very short fragments like:
-  "Hello" → "how are" → "you today"
-
-This module merges them into complete sentences before TTS:
-  "Hello, how are you today."
-
-This produces much more natural-sounding speech.
+text_processor.py - Segment merging and transcript logging for VideoDub.
 """
 
-import re
+import os
+from datetime import datetime
+
+MAX_MERGE_DURATION = 8.0  # seconds
 
 
-def merge_subtitle_segments(segments: list[dict], max_duration: float = 8.0) -> list[dict]:
+def merge_segments(segments: list[dict]) -> list[dict]:
     """
-    Merge short subtitle segments into longer, natural sentences.
+    Merge consecutive short subtitle segments into natural sentences.
 
-    Segments are merged when:
-    - Current segment doesn't end with sentence-ending punctuation (.!?)
-    - Merged duration doesn't exceed max_duration
-    - Gap between segments is small (< 2 seconds)
+    Rules:
+    - Accumulate segments until adding the next would exceed MAX_MERGE_DURATION.
+    - Always flush when the current text ends with sentence-ending punctuation.
+    - Merged segment: start = first segment's start, duration = span to last segment's end.
 
     Args:
-        segments: List of {"text": "...", "start": float, "duration": float}
-        max_duration: Maximum duration for a merged segment (seconds)
+        segments: List of dicts with keys: text, en_text, start, duration.
 
     Returns:
-        List of merged segments with same structure
+        New list of merged segments with the same keys.
     """
     if not segments:
         return []
 
+    _SENTENCE_END = {".", "!", "?", "…"}
+    _SOFT_PAUSE = {",", ";", ":"}
+
     merged = []
-    current = None
+    bucket = []
+
+    def flush():
+        if not bucket:
+            return
+        start = bucket[0]["start"]
+        end = bucket[-1]["start"] + bucket[-1]["duration"]
+        merged.append({
+            "text": " ".join(s["text"] for s in bucket),
+            "en_text": " ".join(s["en_text"] for s in bucket),
+            "start": start,
+            "duration": round(end - start, 3),
+        })
+        bucket.clear()
 
     for seg in segments:
-        text = seg["text"].strip()
-        if not text:
-            continue
+        bucket.append(seg)
+        stripped = seg["text"].rstrip()
+        last_char = stripped[-1] if stripped else ""
 
-        if current is None:
-            # Start a new group
-            current = {
-                "text": text,
-                "start": seg["start"],
-                "duration": seg["duration"],
-                "original_texts": [text],
-            }
-            continue
+        if last_char in _SENTENCE_END:
+            # Always flush at a real sentence boundary
+            flush()
+        elif last_char in _SOFT_PAUSE:
+            # Flush at soft pause only when already over the duration limit
+            span = (bucket[-1]["start"] + bucket[-1]["duration"]) - bucket[0]["start"]
+            if span >= MAX_MERGE_DURATION:
+                flush()
 
-        # Check if we should merge with current group
-        current_end = current["start"] + current["duration"]
-        gap = seg["start"] - current_end
-        merged_duration = (seg["start"] + seg["duration"]) - current["start"]
-
-        should_merge = (
-            not _ends_with_sentence_punctuation(current["text"])
-            and gap < 2.0
-            and merged_duration <= max_duration
-        )
-
-        if should_merge:
-            # Merge: append text, extend duration
-            current["text"] = _join_texts(current["text"], text)
-            current["duration"] = (seg["start"] + seg["duration"]) - current["start"]
-            current["original_texts"].append(text)
-        else:
-            # Finalize current group and start new one
-            current["text"] = _normalize_text(current["text"])
-            merged.append(current)
-            current = {
-                "text": text,
-                "start": seg["start"],
-                "duration": seg["duration"],
-                "original_texts": [text],
-            }
-
-    # Don't forget the last group
-    if current:
-        current["text"] = _normalize_text(current["text"])
-        merged.append(current)
-
-    print(f"[TextProcessor] Merged {len(segments)} segments → {len(merged)} sentences")
+    flush()
     return merged
 
 
-def _ends_with_sentence_punctuation(text: str) -> bool:
-    """Check if text ends with sentence-ending punctuation."""
-    text = text.rstrip()
-    return bool(text) and text[-1] in ".!?…"
-
-
-def _join_texts(a: str, b: str) -> str:
-    """Join two text fragments naturally."""
-    a = a.rstrip()
-    b = b.strip()
-
-    # If a ends with punctuation that's not sentence-ending, just space-join
-    if a and a[-1] in ",-;:":
-        return f"{a} {b}"
-
-    # Otherwise, space-join
-    return f"{a} {b}"
-
-
-def _normalize_text(text: str) -> str:
+def log_transcript(
+    video_id: str,
+    raw_segments: list[dict],
+    translated_segments: list[dict],
+) -> str:
     """
-    Normalize text for TTS:
-    - Add period if no sentence-ending punctuation
-    - Capitalize first letter
-    - Clean up whitespace
+    Write a human-readable transcript log (raw EN → translated VI).
+
+    File: logs/transcript_{videoId}_{YYYYMMDD_HHMMSS}.txt
+
+    Returns the log file path.
     """
-    text = text.strip()
-    if not text:
-        return text
+    logs_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(logs_dir, exist_ok=True)
 
-    # Clean up multiple spaces
-    text = re.sub(r'\s+', ' ', text)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(logs_dir, f"transcript_{video_id}_{timestamp}.txt")
 
-    # Remove artifacts like [Music], [Applause], etc.
-    text = re.sub(r'\[.*?\]', '', text).strip()
-    if not text:
-        return text
+    lines = [
+        "=" * 72,
+        f"  VideoDub Transcript Log",
+        f"  Video   : {video_id}",
+        f"  Date    : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"  Raw segs: {len(raw_segments)}  →  Translated: {len(translated_segments)}",
+        "=" * 72,
+        "",
+    ]
 
-    # Capitalize first letter
-    text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
+    lines.append("─" * 72)
+    lines.append(f"  RAW ENGLISH  ({len(raw_segments)} segments)")
+    lines.append("─" * 72)
+    for i, seg in enumerate(raw_segments):
+        end = seg["start"] + seg["duration"]
+        lines.append(f"[{i:03d}] {seg['start']:7.2f}s – {end:7.2f}s  ({seg['duration']:.2f}s)")
+        lines.append(f"       {seg['text']!r}")
+    lines.append("")
 
-    # Add period if missing sentence-ending punctuation
-    if not _ends_with_sentence_punctuation(text):
-        text += "."
+    lines.append("─" * 72)
+    lines.append(f"  TRANSLATED VIETNAMESE  ({len(translated_segments)} segments)")
+    lines.append("─" * 72)
+    for i, seg in enumerate(translated_segments):
+        end = seg["start"] + seg["duration"]
+        lines.append(f"[{i:03d}] {seg['start']:7.2f}s – {end:7.2f}s  ({seg['duration']:.2f}s)")
+        lines.append(f"       EN: {seg.get('en_text', '')!r}")
+        lines.append(f"       VI: {seg['text']!r}")
+    lines.append("")
+    lines.append("=" * 72)
 
-    return text
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    print(f"[TextProcessor] Transcript log → {path}")
+    return path

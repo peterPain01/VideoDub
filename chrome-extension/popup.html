@@ -3,92 +3,218 @@
 <head>
   <meta charset="UTF-8">
   <style>
+    * { box-sizing: border-box; }
     body {
-      width: 280px;
-      padding: 16px;
+      width: 320px;
+      padding: 0;
       font-family: 'Segoe UI', Arial, sans-serif;
-      background: #1a1a2e;
-      color: #eee;
+      background: #f5f5f7;
+      color: #1a1a2e;
       margin: 0;
     }
-    h2 {
-      margin: 0 0 12px 0;
-      font-size: 16px;
-      text-align: center;
-      color: #e94560;
+
+    /* ── Header ── */
+    .header {
+      background: #1a1a2e;
+      padding: 14px 16px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    .status {
-      text-align: center;
-      margin-bottom: 12px;
+    .header h2 {
+      margin: 0;
+      font-size: 15px;
+      color: #fff;
+      flex: 1;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #555;
+      flex-shrink: 0;
+    }
+    .status-dot.active  { background: #4ade80; }
+    .status-dot.loading { background: #fbbf24; }
+    .status-dot.error   { background: #f87171; }
+
+    /* ── Content area ── */
+    .content { padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 12px; }
+
+    /* ── Section card ── */
+    .section {
+      background: #fff;
+      border-radius: 10px;
+      padding: 12px 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1a1a2e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding-left: 8px;
+      border-left: 3px solid #7c3aed;
+    }
+
+    /* ── Language pair ── */
+    .lang-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .lang-row select {
+      flex: 1;
+      padding: 7px 10px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
       font-size: 13px;
-      color: #aaa;
-      min-height: 18px;
-    }
-    .status.active {
-      color: #0f0;
-    }
-    .status.error {
-      color: #ff6b6b;
-    }
-    .status.loading {
-      color: #ffd93d;
-    }
-    button {
-      width: 100%;
-      padding: 10px;
-      border: none;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: bold;
+      color: #1a1a2e;
+      background: #fff;
       cursor: pointer;
-      transition: background 0.2s;
+      appearance: auto;
     }
-    button.start {
-      background: #e94560;
+    .lang-row select:focus { outline: none; border-color: #7c3aed; }
+    .lang-arrow {
+      font-size: 16px;
+      color: #7c3aed;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    /* ── Speaker row ── */
+    .speaker-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .speaker-num {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: #7c3aed;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .speaker-row select {
+      flex: 1;
+      padding: 7px 10px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #1a1a2e;
+      background: #fff;
+      cursor: pointer;
+      appearance: auto;
+    }
+    .speaker-row select:focus { outline: none; border-color: #7c3aed; }
+
+    /* ── Status text ── */
+    .status-text {
+      font-size: 12px;
+      color: #6b7280;
+      text-align: center;
+      min-height: 16px;
+    }
+    .status-text.active  { color: #16a34a; }
+    .status-text.error   { color: #dc2626; }
+    .status-text.loading { color: #d97706; }
+
+    /* ── Toggle button ── */
+    .btn-toggle {
+      width: 100%;
+      padding: 11px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    .btn-toggle.start {
+      background: #7c3aed;
       color: #fff;
     }
-    button.start:hover {
-      background: #c73450;
+    .btn-toggle.start:hover { background: #6d28d9; }
+    .btn-toggle.stop {
+      background: #fff;
+      color: #7c3aed;
+      border: 1.5px solid #7c3aed;
     }
-    button.stop {
-      background: #333;
-      color: #e94560;
-      border: 1px solid #e94560;
-    }
-    button.stop:hover {
-      background: #444;
-    }
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+    .btn-toggle.stop:hover { background: #f5f3ff; }
+    .btn-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Spinner ── */
     .spinner {
       display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid rgba(255, 217, 61, 0.3);
-      border-top-color: #ffd93d;
+      width: 12px; height: 12px;
+      border: 2px solid rgba(0,0,0,0.15);
+      border-top-color: currentColor;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
       vertical-align: middle;
-      margin-right: 6px;
+      margin-right: 5px;
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    .info {
-      text-align: center;
-      font-size: 11px;
-      color: #666;
-      margin-top: 10px;
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
-  <h2>🎙 VideoDub</h2>
-  <p class="status" id="status">Status: OFF</p>
-  <button id="toggleBtn" class="start">▶ Start Translation</button>
-  <p class="info" id="info">Translates YouTube English subtitles to Vietnamese voice</p>
+  <div class="header">
+    <h2>🎙 VideoDub</h2>
+    <div class="status-dot" id="statusDot"></div>
+  </div>
+
+  <div class="content">
+
+    <!-- Language pair -->
+    <div class="section">
+      <div class="section-title">Language</div>
+      <div class="lang-row" style="margin-top:10px;">
+        <select id="srcLang">
+          <option value="en">🇺🇸 US (English)</option>
+          <option value="en-gb">🇬🇧 UK (English)</option>
+        </select>
+        <span class="lang-arrow">→</span>
+        <select id="tgtLang">
+          <option value="vi">🇻🇳 Vietnam</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Speakers -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">Speakers</div>
+      </div>
+      <div class="speaker-row">
+        <div class="speaker-num">1</div>
+        <select id="voiceSelect">
+          <option value="vi-VN-HoaiMyNeural">Hoài My (Female)</option>
+          <option value="vi-VN-HaiMinhNeural">Hải Minh (Male)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Status + button -->
+    <div class="section">
+      <p class="status-text" id="statusText">Ready</p>
+      <div style="margin-top:8px;">
+        <button id="toggleBtn" class="btn-toggle start">▶ Start</button>
+      </div>
+    </div>
+
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>
