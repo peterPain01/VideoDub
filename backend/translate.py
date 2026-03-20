@@ -12,6 +12,7 @@ Optimisations:
 import asyncio
 import logging
 import os
+import re
 import time
 
 from deep_translator import GoogleTranslator
@@ -20,6 +21,46 @@ from deep_translator import GoogleTranslator
 CHUNK_SIZE = int(os.getenv("TRANSLATION_CHUNK_SIZE", 50))
 MAX_RETRIES = 3
 CACHE_MAX   = int(os.getenv("TRANSLATION_CACHE_MAX_SIZE", 5000))
+
+# ── Proper-noun protection ─────────────────────────────────────────────────────
+# Matches: TitleCase word sequences  |  camelCase brands (iPhone, macOS, eBay)
+_PROPER_RE = re.compile(
+    r'[A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+)*'   # TitleCase: "Elon Musk", "YouTube"
+    r'|[a-z]+[A-Z][a-zA-Z0-9]+'                        # camelCase: "iPhone", "macOS"
+)
+
+
+def _protect_proper_nouns(text: str) -> tuple[str, list[str]]:
+    """
+    Replace mid-sentence proper nouns with [PN0], [PN1], … placeholders.
+    Sentence-initial words are left untouched (Google handles them well).
+    Returns (protected_text, list_of_originals).
+    """
+    # Positions where a new sentence starts (pos 0, or right after [.!?…] + spaces)
+    sentence_starts: set[int] = {0}
+    for m in re.finditer(r'[.!?…]+\s*', text):
+        sentence_starts.add(m.end())
+
+    saved: list[str] = []
+    parts: list[str] = []
+    last = 0
+
+    for m in _PROPER_RE.finditer(text):
+        if m.start() in sentence_starts:
+            continue                          # sentence-initial → keep as-is
+        parts.append(text[last:m.start()])
+        parts.append(f"[PN{len(saved)}]")
+        saved.append(m.group(0))
+        last = m.end()
+
+    parts.append(text[last:])
+    return "".join(parts), saved
+
+
+def _restore_proper_nouns(text: str, saved: list[str]) -> str:
+    for i, original in enumerate(saved):
+        text = text.replace(f"[PN{i}]", original)
+    return text
 
 # ── In-memory translation cache ───────────────────────────────────────────────
 # key: stripped EN text  →  value: VI translation
@@ -39,27 +80,37 @@ def _evict_if_full() -> None:
 def _translate_chunk(texts: list[str]) -> list[str]:
     """
     Translate one chunk of texts via Google Translate with retry.
+    Proper nouns are protected before translation and restored after.
     Returns original texts if all retries are exhausted.
     """
+    protected_texts, saved_list = zip(
+        *[_protect_proper_nouns(t) for t in texts]
+    ) if texts else ([], [])
+    protected_texts = list(protected_texts)
+    saved_list = list(saved_list)
+
     translator = GoogleTranslator(source="en", target="vi")
     delay = 1.0
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            results = translator.translate_batch(texts)
-            return [(r if r else texts[i]) for i, r in enumerate(results)]
+            results = translator.translate_batch(protected_texts)
+            return [
+                _restore_proper_nouns(r if r else protected_texts[i], saved_list[i])
+                for i, r in enumerate(results)
+            ]
         except Exception as e:
             if attempt == MAX_RETRIES:
                 logging.warning(
                     f"[Translate] Chunk failed after {MAX_RETRIES} retries: {e}"
                 )
-                return texts
+                return texts  # fall back to original EN
             logging.warning(
                 f"[Translate] Chunk attempt {attempt} failed ({e}), "
                 f"retrying in {delay:.0f}s..."
             )
             time.sleep(delay)
             delay *= 2
-    return texts  # unreachable but satisfies type checker
+    return texts
 
 
 async def _translate_chunk_async(texts: list[str]) -> list[str]:

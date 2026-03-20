@@ -20,7 +20,7 @@ import uvicorn
 
 from subtitle import fetch_subtitles
 from translate import translate_batch
-from text_processor import log_transcript, merge_segments
+from text_processor import log_transcript, merge_en_segments
 from tts import text_to_speech, list_voices, get_provider_name
 
 
@@ -110,25 +110,25 @@ async def get_translated_subtitles(request: SubtitleRequest):
                    "This extension only works with videos that have English captions."
         )
 
-    t1 = time.perf_counter()
-    print(f"[Step 1] Fetch subtitles → {len(subtitles)} segments  ({t1 - t_start:.2f}s)")
-
-    # Step 2: Translate all EN segments → VI in a single batch request
     raw_segments = [s for s in subtitles if s.get("text", "").strip()]
-    en_texts = [s["text"] for s in raw_segments]
+    t1 = time.perf_counter()
+    print(f"[Step 1] Fetch subtitles → {len(raw_segments)} segments  ({t1 - t_start:.2f}s)")
+
+    # Step 2: Merge EN segments into natural sentences BEFORE translation
+    #         (reduces translation API calls ~4x vs translating raw segments)
+    merged_en = merge_en_segments(raw_segments)
+    t2 = time.perf_counter()
+    print(f"[Step 2] Merge EN → {len(raw_segments)} segments → {len(merged_en)} sentences  ({t2 - t1:.2f}s)")
+
+    # Step 3: Translate merged EN sentences → VI
+    en_texts = [s["text"] for s in merged_en]
     vi_texts = await translate_batch(en_texts)
 
-    translated_segments = [
-        {"text": vi, "en_text": en, "start": seg["start"], "duration": seg["duration"]}
-        for seg, en, vi in zip(raw_segments, en_texts, vi_texts)
+    merged_segments = [
+        {"text": vi, "en_text": en["text"], "start": en["start"], "duration": en["duration"]}
+        for en, vi in zip(merged_en, vi_texts)
         if vi and vi.strip()
     ]
-
-    t2 = time.perf_counter()
-    print(f"[Step 2] Translate → {len(translated_segments)}/{len(raw_segments)} segments  ({t2 - t1:.2f}s)")
-
-    # Step 3: Merge short fragments into natural sentences
-    merged_segments = merge_segments(translated_segments)
 
     for i, s in enumerate(merged_segments):
         end = s["start"] + s["duration"]
@@ -141,7 +141,7 @@ async def get_translated_subtitles(request: SubtitleRequest):
     log_transcript(video_id, raw_segments, merged_segments)
 
     t3 = time.perf_counter()
-    print(f"[Step 3] Merge → {len(translated_segments)} segments → {len(merged_segments)} sentences  ({t3 - t2:.2f}s)")
+    print(f"[Step 3] Translate → {len(merged_segments)}/{len(merged_en)} sentences  ({t3 - t2:.2f}s)")
 
     # Step 4: Generate TTS for all segments in parallel
     async def _tts_one(segment):

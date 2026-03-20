@@ -8,6 +8,48 @@ from datetime import datetime
 MAX_MERGE_DURATION = 8.0  # seconds
 
 
+def merge_en_segments(segments: list[dict]) -> list[dict]:
+    """
+    Merge raw English subtitle segments into natural sentences BEFORE translation.
+    Input segments have only: text (EN), start, duration.
+    Merging EN first reduces translation API calls by ~4x.
+    """
+    if not segments:
+        return []
+
+    _SENTENCE_END = {".", "!", "?", "…"}
+    _SOFT_PAUSE = {",", ";", ":"}
+
+    merged = []
+    bucket: list[dict] = []
+
+    def flush():
+        if not bucket:
+            return
+        start = bucket[0]["start"]
+        end = bucket[-1]["start"] + bucket[-1]["duration"]
+        merged.append({
+            "text": " ".join(s["text"] for s in bucket),
+            "start": start,
+            "duration": round(end - start, 3),
+        })
+        bucket.clear()
+
+    for seg in segments:
+        bucket.append(seg)
+        stripped = seg["text"].rstrip()
+        last_char = stripped[-1] if stripped else ""
+        if last_char in _SENTENCE_END:
+            flush()
+        elif last_char in _SOFT_PAUSE:
+            span = (bucket[-1]["start"] + bucket[-1]["duration"]) - bucket[0]["start"]
+            if span >= MAX_MERGE_DURATION:
+                flush()
+
+    flush()
+    return merged
+
+
 def merge_segments(segments: list[dict]) -> list[dict]:
     """
     Merge consecutive short subtitle segments into natural sentences.
