@@ -30,7 +30,7 @@
   let resumePosition = 0;
 
   // ── Config ─────────────────────────────────────────────
-  const API_URL = 'http://localhost:8000/api/subtitles';
+  const API_URL = 'https://videodub-production.up.railway.app/api/subtitles';
   const SYNC_INTERVAL_MS = 500;
   const FADE_MS = 120;
   let syncIntervalId = null;
